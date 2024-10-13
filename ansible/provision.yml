@@ -1,0 +1,84 @@
+---
+- name: Base set up
+  hosts: all
+  #Выполнять действия от root-пользователя
+  become: yes
+  tasks:
+  #Установка текстового редактора Vim и chrony
+  - name: install softs on CentOS
+    yum:
+      name:
+        - vim
+        - chrony
+      state: present
+      update_cache: true
+  
+  #Отключение firewalld и удаление его из автозагрузки
+  - name: disable firewalld
+    service:
+      name: firewalld
+      state: stopped
+      enabled: false
+  
+  #Отключение SElinux из автозагрузки
+  #Будет применено после перезагрузки
+  - name: disable SElinux
+    selinux:
+      state: disabled
+  
+  #Отключение SElinux до перезагрузки
+  - name: disable SElinux now
+    shell: setenforce 0
+
+  #Установка временной зоны Европа/Москва    
+  - name: Set up timezone
+    timezone:
+      name: "Europe/Moscow"
+  
+  #Запуск службы Chrony, добавление её в автозагрузку
+  - name: enable chrony
+    service:
+      name: chronyd
+      state: restarted
+      enabled: true
+  #Выключаем ipv6 для lo интерфейса
+  - name: set disable ipv6
+    sysctl:
+      name: net.ipv6.conf.lo.disable_ipv6
+      value: '0'
+      state: present
+  
+  #Копирование файла /etc/hosts c правами root:root 0644
+  - name: change /etc/hosts
+    template:
+      src: hosts.j2
+      dest: /etc/hosts
+      owner: root
+      group: root
+      mode: 0644
+
+  #Установка сервера Freeipa
+  - name: install module ipa-server
+    yum:
+      name:
+        - ipa-server
+      state: present
+      update_cache: true
+    when: "'servers' in group_names"
+  #Запуск скрипта настройки сервера
+  - name: start ipa-server
+    shell: ipa-server-install --hostname=ipa.otus.lan --domain=otus.lan --realm=OTUS.LAN --ds-password=qwe12345 --admin-password=qwe12345 --unattended
+    when: "'servers' in group_names"
+
+  #Установка клиента Freeipa
+  - name: install module ipa-client
+    yum:
+      name:
+        - freeipa-client
+      state: present
+      update_cache: true
+    when: "'clients' in group_names"
+  #Запуск скрипта добавления хоста к серверу
+  - name: add host to ipa-server
+    shell: echo -e "yes\nyes" | ipa-client-install --mkhomedir --domain=OTUS.LAN --server=ipa.otus.lan --no-ntp -p admin -w qwe12345
+    when: "'clients' in group_names"
